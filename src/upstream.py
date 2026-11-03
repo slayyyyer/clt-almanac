@@ -1,0 +1,165 @@
+"""The air coming at Charlotte, from hourly airport observations.
+
+GHCN gives the airport one summary row per day, which is why the model has only
+ever known what already happened here. The Iowa Environmental Mesonet keeps the
+hourly records from the airports around us, so the model can also see the air
+mass that has not arrived yet: Atlanta to the southwest, Greer to the west,
+Columbia to the south, Asheville to the northwest.
+
+The window is 00Z to 05Z, the overnight hours that are on the wire before the
+07:17Z run. That is the point: a reader could have had this information at
+press time, so the backtest and the live forecast are built from the same kind
+of evidence.
+"""
+
+from __future__ import annotations
+
+import csv
+import datetime as dt
+import io
+import json
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+ENDPOINT = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
+USER_AGENT = "clt-almanac/1.0 (personal Charlotte weather almanac)"
+
+# Upstream airports, in the direction Charlotte's weather usually arrives from.
+STATIONS = ("KATL", "KGSP", "KCAE", "KAVL")
+
+MIN_HOURS = 4  # of six overnight reports before a station-day counts
+MIN_STATIONS = 2  # of four before the region counts as observed
+
+WINDOW = range(0, 6)  # 00Z-05Z
+
+
+def _fetch(station: str, start: dt.date, end: dt.date, tries: int = 3,
+           timeout: int = 180) -> str:
+    params = {
+        "station": station,
+        "data": "tmpf",
+        "year1": str(start.year),
+        "month1": str(start.month),
+        "day1": str(start.day),
+        "year2": str(end.year),
+        "month2": str(end.month),
+        "day2": str(end.day),
+        "tz": "UTC",
+        "format": "onlycomma",
+        "missing": "M",
+        "trace": "T",
+        "direct": "no",
+        "report_type": "3",
+    }
+    url = f"{ENDPOINT}?{urllib.parse.urlencode(params)}"
+    last_error: Exception | None = None
+    for attempt in range(tries):
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read().decode("utf-8", "replace")
+        except Exception as error:  # noqa: BLE001 - retried, then surfaced
+            last_error = error
+            if attempt < tries - 1:
+                time.sleep(2 * (attempt + 1))
+    raise RuntimeError(f"IEM request failed: {station} {start}..{end}") from last_error
+
+
+def _station_days(text: str) -> dict[dt.date, float]:
+    """Mean 00Z-05Z temperature for each day this station reported."""
+    buckets: dict[dt.date, list[float]] = {}
+    for record in csv.DictReader(io.StringIO(text)):
+        try:
+            stamp = dt.datetime.strptime(record["valid"], "%Y-%m-%d %H:%M")
+        except (KeyError, TypeError, ValueError):
+            continue
+        if stamp.hour not in WINDOW:
+            continue
+        raw = (record.get("tmpf") or "").strip()
+        if raw in ("", "M"):
+            continue
+        try:
+            buckets.setdefault(stamp.date(), []).append(float(raw))
+        except ValueError:
+            continue
+    return {
+        day: sum(values) / len(values)
+        for day, values in buckets.items()
+        if len(values) >= MIN_HOURS
+    }
+
+
+def _days(start: dt.date, end: dt.date):
+    day = start
+    while day <= end:
+        yield day
+        day += dt.timedelta(days=1)
+
+
+def _pull(days: dict[dt.date, float], start: dt.date, end: dt.date) -> bool:
+    """Fetch one span and merge it into `days`. True if any station answered."""
+    if end < start:
+        return False
+    responded = False
+    tables = []
+    for station in STATIONS:
+        try:
+            tables.append(_station_days(_fetch(station, start, end)))
+            responded = True
+        except Exception:  # noqa: BLE001 - one dead station must not sink the run
+            tables.append({})
+    for day in _days(start, end):
+        values = [table[day] for table in tables if day in table]
+        if len(values) >= MIN_STATIONS:
+            days[day] = round(sum(values) / len(values), 2)
+    return responded
+
+
+def ensure(path: Path, start: dt.date, end: dt.date) -> dict[dt.date, float]:
+    """Regional overnight temperature, cached on disk and extended as needed.
+
+    The committed cache keeps the daily job from refetching two decades of
+    hourly records; a normal run asks each station for a handful of new days.
+    """
+    payload: dict = {}
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            payload = {}
+
+    days = {
+        dt.date.fromisoformat(key): float(value)
+        for key, value in (payload.get("days") or {}).items()
+    }
+    covered = payload.get("covered") or {}
+
+    if not covered:
+        from_day, to_day = start, start - dt.timedelta(days=1)
+    else:
+        from_day = dt.date.fromisoformat(covered["from"])
+        to_day = dt.date.fromisoformat(covered["to"])
+
+    changed = False
+    if start < from_day and _pull(days, start, from_day - dt.timedelta(days=1)):
+        from_day = start
+        changed = True
+    if end > to_day and _pull(days, to_day + dt.timedelta(days=1), end):
+        to_day = end
+        changed = True
+
+    if changed:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({
+                "source": "Iowa Environmental Mesonet ASOS · " + "/".join(STATIONS),
+                "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+                "covered": {"from": from_day.isoformat(), "to": to_day.isoformat()},
+                "days": {day.isoformat(): value for day, value in sorted(days.items())},
+            }, indent=1),
+            encoding="utf-8",
+        )
+
+    return days

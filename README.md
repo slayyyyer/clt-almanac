@@ -20,6 +20,12 @@ Its forecast endpoint fills the gap while the station record catches up (GHCN
 usually runs two to four days behind) and supplies the independent forecast the
 page compares against. Its archive is the fallback if NCEI is unreachable.
 
+**The air on its way:** the [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/)
+keeps the hourly ASOS records from Atlanta, Greer, Columbia and Asheville. Their
+mean temperature between 00Z and 05Z is the regional air mass Charlotte is about
+to receive — the one input here that is not a measurement of what already
+happened locally.
+
 Charlotte is at 35.2271°N, 80.8431°W. The station sits at the airport, about eight
 miles west of uptown.
 
@@ -29,9 +35,9 @@ Three separate pieces, deliberately:
 
 1. **The pattern model** (`src/learn.py`, `src/models.py`) produces every number.
    Daily features — yesterday's high, low and rain, lags out to two weeks, rolling
-   means, anomalies against normal, the wet-ground signal and the position of the
-   year — go into ridge regression for the high and low, and L2 logistic
-   regression for the chance of rain. It retrains on everything before today and
+   means, anomalies against normal, the wet-ground signal, the position of the
+   year and the overnight air mass upwind — go into ridge regression for the high
+   and low, and L2 logistic regression for the chance of rain. It retrains on everything before today and
    predicts today.
 2. **The narrator** (`src/narrative.py`) is `glm-4.7-flash` on z.ai's free tier.
    It receives the finished numbers and writes 70–110 words of prose. It is
@@ -73,7 +79,10 @@ python -m src.main                       # needs ZAI_API_KEY in the environment
 ```
 
 `--days 90` narrows the backtest window (handy while iterating), and
-`--refresh-normals` refetches the 1991–2020 climate normals.
+`--refresh-normals` refetches the 1991–2020 climate normals. The first run also
+backfills `data/upstream.json` from the Mesonet (about 20 MB of hourly records);
+later runs only ask for the days past the cached edge, and the workflow commits
+the file so the archive travels with the repository.
 
 Output lands in `public/index.html` and `public/forecast.json`. Open the HTML
 file directly; it has no dependencies.
@@ -98,14 +107,18 @@ the prediction log survives between runs; that is why the workflow asks for
 
 ## Cost
 
-Zero. Open-Meteo is free for non-commercial use, and `glm-4.7-flash` is one of
-z.ai's free models. One request per day, roughly 600 tokens in and 300 out.
+Zero. Open-Meteo is free for non-commercial use, the Mesonet archive is free and
+needs no key, and `glm-4.7-flash` is one of z.ai's free models. One z.ai request
+per day, roughly 600 tokens in and 300 out.
 
 ## Limits worth knowing
 
-- The model is linear on fifteen features. It will not see a stalled front, a
+- The model is linear on twenty-two features. It will not see a stalled front, a
   tropical system, or cold-air damming better than persistence does — the skill
   table is there to say so honestly.
+- The upwind airports are a proxy for a single air mass, not a trajectory. On a
+  day when the wind backs around, they can describe the wrong air entirely, and
+  the average over four stations hides that.
 - Daily values are for one grid cell near uptown Charlotte. The airport, Matthews
   and Lake Norman will differ.
 - GHCN runs two to four days behind, so the newest days of "observed" weather

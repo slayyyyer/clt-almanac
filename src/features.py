@@ -32,6 +32,9 @@ FEATURES = (
     "season_cos",
     "season_sin2",
     "season_cos2",
+    "upstream_overnight",
+    "upstream_vs_charlotte",
+    "upstream_change",
 )
 
 TREND_DAYS = 3
@@ -48,8 +51,14 @@ def _season(target: dt.date) -> tuple[float, float, float, float]:
     return math.sin(angle), math.cos(angle), math.sin(2 * angle), math.cos(2 * angle)
 
 
-def vector(observations: dict, target: dt.date, normals: dict) -> list[float] | None:
-    """Feature vector for `target`, or None when history is too thin."""
+def vector(observations: dict, target: dt.date, normals: dict,
+           upstream: dict | None = None) -> list[float] | None:
+    """Feature vector for `target`, or None when history is too thin.
+
+    `upstream` is the regional overnight temperature keyed by date: the only
+    input here that is not a Charlotte measurement, and the only one that says
+    where the air is going instead of where it has been.
+    """
     past: dict[int, dict] = {}
     for lag in range(1, WINDOW_DAYS + 1):
         day = target - dt.timedelta(days=lag)
@@ -79,6 +88,15 @@ def vector(observations: dict, target: dt.date, normals: dict) -> list[float] | 
     season = _season(target)
     precip_week = sum(past[lag].get("precip") or 0.0 for lag in range(1, 8))
 
+    regional = upstream or {}
+    air_now = regional.get(target)
+    air_previous = regional.get(target - dt.timedelta(days=1))
+    if air_now is None:
+        # No upstream report: assume the air has not moved.
+        air_now = past[1]["tmax"]
+    if air_previous is None:
+        air_previous = air_now
+
     return [
         past[1]["tmax"],
         past[1]["tmin"],
@@ -99,4 +117,7 @@ def vector(observations: dict, target: dt.date, normals: dict) -> list[float] | 
         season[1],
         season[2],
         season[3],
+        air_now,
+        air_now - past[1]["tmax"],
+        air_now - air_previous,
     ]

@@ -7,15 +7,16 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from . import learn, narrative, site, weather
+from . import learn, narrative, site, upstream, weather
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 PUBLIC_DIR = ROOT / "public"
 NORMALS_PATH = DATA_DIR / "normals.json"
+UPSTREAM_PATH = DATA_DIR / "upstream.json"
 PREDICTIONS_PATH = DATA_DIR / "predictions.jsonl"
 HISTORY_START = dt.date(2005, 1, 1)
-MODEL_VERSION = "ridge-logistic-v1"
+MODEL_VERSION = "ridge-logistic-v2"
 
 
 def _load_predictions() -> dict[str, dict]:
@@ -126,6 +127,15 @@ def _facts(prediction: dict) -> list[dict]:
         sign = "+" if delta >= 0 else "−"
         facts.append({"label": "Against normal high", "value": f"{sign}{abs(delta):.0f}°"})
 
+    air = prediction.get("features") or {}
+    if air.get("upstream_overnight") is not None:
+        value = f"{air['upstream_overnight']:.0f}°"
+        change = air.get("upstream_change")
+        if change is not None:
+            sign = "+" if change >= 0 else "−"
+            value += f" ({sign}{abs(change):.1f}° vs yesterday)"
+        facts.append({"label": "Overnight air upstream", "value": value})
+
     return facts
 
 
@@ -172,6 +182,7 @@ def _week_rows(observations: dict, prediction: dict, target: dt.date) -> list[di
 
 def build(args: argparse.Namespace) -> dict:
     normals = weather.load_normals(NORMALS_PATH, refresh=args.refresh_normals)
+    air = upstream.ensure(UPSTREAM_PATH, HISTORY_START, weather.local_today())
     observations, forecast, sources = weather.fetch_observations(HISTORY_START)
     if not observations:
         raise SystemExit("no observations available")
@@ -179,12 +190,12 @@ def build(args: argparse.Namespace) -> dict:
     latest = max(observations)
     target = latest + dt.timedelta(days=1)
 
-    rows = learn.build_dataset(observations, normals)
+    rows = learn.build_dataset(observations, normals, air)
     if len(rows) < 400:
         raise SystemExit(f"not enough history to train on ({len(rows)} rows)")
 
     skill = learn.backtest(rows, horizon=args.days)
-    prediction = learn.predict_live(rows, observations, target, normals)
+    prediction = learn.predict_live(rows, observations, target, normals, air)
     official = forecast.get(target)
 
     context = _narrative_context(prediction, official, latest)

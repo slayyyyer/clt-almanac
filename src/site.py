@@ -362,11 +362,14 @@ def render(state: dict) -> str:
     <p><strong>Data.</strong> NOAA's GHCN-Daily station record for Charlotte Douglas
     (USW00013881), which runs from 1939 to now, with Open-Meteo filling the last few days
     before the station record catches up and supplying the forward forecast used for
-    comparison. Both are free and keyless.</p>
+    comparison. The air upwind comes from the hourly airport records at Atlanta, Greer,
+    Columbia and Asheville, by way of the Iowa Environmental Mesonet. All of it is free
+    and keyless.</p>
     <p><strong>The pattern model.</strong> Daily features — yesterday's high, low and rain, lags out
-    to two weeks, how far the last few days sat from normal, the wet-ground signal, and the position
-    of the year — fed to ridge regression for temperatures and logistic regression for rain. It
-    retrains every morning on everything before today and predicts today.</p>
+    to two weeks, how far the last few days sat from normal, the wet-ground signal, the position
+    of the year, and the overnight air mass upwind — fed to ridge regression for temperatures and
+    logistic regression for rain. It retrains every morning on everything before today and
+    predicts today.</p>
     <p><strong>The writer.</strong> A free z.ai GLM model turns the numbers into the note above. It is
     given the figures and told not to invent any; every number on this page comes from the
     statistical model or the weather archive, never from the language model.</p>

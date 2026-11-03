@@ -18,13 +18,14 @@ AMOUNT_ALPHA = 1.0
 BACKTEST_DAYS = 365
 
 
-def build_dataset(observations: dict, normals: dict) -> list[dict]:
+def build_dataset(observations: dict, normals: dict,
+                  upstream: dict | None = None) -> list[dict]:
     rows: list[dict] = []
     for target in sorted(observations):
         label = observations[target]
         if label.get("tmax") is None or label.get("tmin") is None:
             continue
-        features = vector(observations, target, normals)
+        features = vector(observations, target, normals, upstream)
         if features is None:
             continue
         rows.append({
@@ -145,7 +146,8 @@ def _persistence(rows: list[dict], key: str, fallback: np.ndarray) -> np.ndarray
     return values
 
 
-def predict_live(rows: list[dict], observations: dict, target: dt.date, normals: dict) -> dict:
+def predict_live(rows: list[dict], observations: dict, target: dt.date, normals: dict,
+                 upstream: dict | None = None) -> dict:
     data = _arrays(rows)
     indices = np.arange(max(0, len(rows) - MAX_TRAIN_ROWS), len(rows))
     models = _fit_models(data["x"][indices], data, indices)
