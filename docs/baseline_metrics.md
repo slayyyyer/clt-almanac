@@ -90,3 +90,31 @@ always finished well inside it.
 - The walk-forward loop trains only on indices strictly below the day it scores, so the
   backtest rows themselves are clean; the 4.88 / 3.34 above are real for the model they
   describe.
+
+## Status after the fixes — 2026-11-03
+
+Five of the six defects above are repaired on branch `model-accuracy`, each with a
+regression test in `tests/test_pipeline.py` (7 cases, standard library only, no
+network).
+
+- **1 — live/serve gap.** `predict_live()` now receives the upwind cache. The live
+  forecast for 2026-11-02 moved from 70/54°F, 52% to 67/50°F, 34%, and its
+  `upstream_overnight` feature is the observed regional value (56.5°F) rather than a
+  copy of yesterday's high.
+- **2 — cache dropping the final day.** The Mesonet request now asks one day past the
+  span it wants, and `ensure()` derives coverage from the values that arrived instead
+  of the dates it asked for. 2026-11-02 is backfilled at 56.54°F, and `covered` now
+  matches the data exactly.
+- **3 — reruns overwriting the log.** `main._record_prediction()` writes each target
+  once, records `logged_at`, and refuses to log a backcast.
+- **4 — two-sided gap fill.** An isolated hole is filled from the previous day only,
+  so a filled day can no longer import the day it is used to predict.
+- **5 — backcasts scored as predictions.** Covered by the same guard: a target earlier
+  than the issue date is not logged at all.
+
+Defect **6 — the train/serve source mismatch** — is unchanged. Fixing it changes which
+source the training rows come from, which is a modelling decision for Phase 1, not a
+wiring bug.
+
+The backtest is unmoved at 4.88 / 3.34 / 0.170, which is the point: those rows were
+already built honestly. What changed is that the live forecast now agrees with them.

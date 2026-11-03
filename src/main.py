@@ -16,7 +16,7 @@ NORMALS_PATH = DATA_DIR / "normals.json"
 UPSTREAM_PATH = DATA_DIR / "upstream.json"
 PREDICTIONS_PATH = DATA_DIR / "predictions.jsonl"
 HISTORY_START = dt.date(2005, 1, 1)
-MODEL_VERSION = "ridge-logistic-v2"
+MODEL_VERSION = "ridge-logistic-v3"
 
 
 def _load_predictions() -> dict[str, dict]:
@@ -42,6 +42,31 @@ def _save_predictions(entries: dict[str, dict]) -> None:
         "\n".join(json.dumps(entry, sort_keys=True) for entry in ordered) + "\n",
         encoding="utf-8",
     )
+
+
+def _record_prediction(entries: dict, target: dt.date, prediction: dict,
+                       issued: dt.date) -> bool:
+    """Log a forecast once, before its outcome exists. First write wins.
+
+    A rerun on the same day must not rewrite what was already published, and a
+    backcast is not a prediction at all: when the station record lags behind
+    the calendar the target day is already over, and scoring it would flatter
+    the live scoreboard.
+    """
+    key = target.isoformat()
+    if target < issued or key in entries:
+        return False
+    entries[key] = {
+        "target": key,
+        "issued": issued.isoformat(),
+        "logged_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "tmax": prediction["tmax"],
+        "tmin": prediction["tmin"],
+        "pop": prediction["pop"],
+        "precip_in": prediction["precip_in"],
+        "model": MODEL_VERSION,
+    }
+    return True
 
 
 def _resolve(entries: dict[str, dict], observations: dict) -> list[dict]:
@@ -202,15 +227,7 @@ def build(args: argparse.Namespace) -> dict:
     note = narrative.write(context, allow_api=not args.no_narrative)
 
     entries = _load_predictions()
-    entries[target.isoformat()] = {
-        "target": target.isoformat(),
-        "issued": weather.local_today().isoformat(),
-        "tmax": prediction["tmax"],
-        "tmin": prediction["tmin"],
-        "pop": prediction["pop"],
-        "precip_in": prediction["precip_in"],
-        "model": MODEL_VERSION,
-    }
+    _record_prediction(entries, target, prediction, weather.local_today())
     _save_predictions(entries)
 
     resolved = _resolve(entries, observations)

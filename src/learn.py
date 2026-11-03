@@ -152,7 +152,7 @@ def predict_live(rows: list[dict], observations: dict, target: dt.date, normals:
     indices = np.arange(max(0, len(rows) - MAX_TRAIN_ROWS), len(rows))
     models = _fit_models(data["x"][indices], data, indices)
 
-    features = vector(observations, target, normals)
+    features = vector(observations, target, normals, upstream)
     if features is None:
         raise RuntimeError("not enough recent observations to build a feature vector")
 

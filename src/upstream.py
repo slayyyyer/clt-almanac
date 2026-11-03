@@ -37,15 +37,19 @@ WINDOW = range(0, 6)  # 00Z-05Z
 
 def _fetch(station: str, start: dt.date, end: dt.date, tries: int = 3,
            timeout: int = 180) -> str:
+    # The Mesonet treats the end date as exclusive: asking for 10-29..11-02
+    # returns 10-29 through 11-01. Ask one day past the span we want and let
+    # `_pull` keep only the days inside it.
+    stop = end + dt.timedelta(days=1)
     params = {
         "station": station,
         "data": "tmpf",
         "year1": str(start.year),
         "month1": str(start.month),
         "day1": str(start.day),
-        "year2": str(end.year),
-        "month2": str(end.month),
-        "day2": str(end.day),
+        "year2": str(stop.year),
+        "month2": str(stop.month),
+        "day2": str(stop.day),
         "tz": "UTC",
         "format": "onlycomma",
         "missing": "M",
@@ -134,29 +138,29 @@ def ensure(path: Path, start: dt.date, end: dt.date) -> dict[dt.date, float]:
         dt.date.fromisoformat(key): float(value)
         for key, value in (payload.get("days") or {}).items()
     }
-    covered = payload.get("covered") or {}
+    before = dict(days)
 
-    if not covered:
-        from_day, to_day = start, start - dt.timedelta(days=1)
+    # Coverage is read back from the values that actually arrived, never from
+    # the dates that were asked for. A day the Mesonet had no report for stays
+    # outside the edge of the cache and is requested again on the next run.
+    if not days:
+        _pull(days, start, end)
     else:
-        from_day = dt.date.fromisoformat(covered["from"])
-        to_day = dt.date.fromisoformat(covered["to"])
+        if end > max(days):
+            _pull(days, max(days) + dt.timedelta(days=1), end)
+        if start < min(days):
+            _pull(days, start, min(days) - dt.timedelta(days=1))
 
-    changed = False
-    if start < from_day and _pull(days, start, from_day - dt.timedelta(days=1)):
-        from_day = start
-        changed = True
-    if end > to_day and _pull(days, to_day + dt.timedelta(days=1), end):
-        to_day = end
-        changed = True
+    covered = ({"from": min(days).isoformat(), "to": max(days).isoformat()}
+               if days else None)
 
-    if changed:
+    if days and (days != before or payload.get("covered") != covered):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             json.dumps({
                 "source": "Iowa Environmental Mesonet ASOS · " + "/".join(STATIONS),
                 "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-                "covered": {"from": from_day.isoformat(), "to": to_day.isoformat()},
+                "covered": covered,
                 "days": {day.isoformat(): value for day, value in sorted(days.items())},
             }, indent=1),
             encoding="utf-8",

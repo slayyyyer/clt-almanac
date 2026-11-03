@@ -179,26 +179,29 @@ def _rows(payload: dict) -> dict[dt.date, dict]:
 
 
 def _interpolate_gaps(rows: dict[dt.date, dict]) -> dict[dt.date, dict]:
-    """Fill isolated one-day holes in temperature with a straight line."""
+    """Carry the previous day's reading into an isolated one-day hole.
+
+    Averaging the two neighbours used to fill a hole at D-1 with data from D,
+    which put the answer to a day inside the feature vector that predicts it.
+    Reading only backwards cannot leak, so a hole is filled from the day before
+    it or not at all.
+    """
     if not rows:
         return rows
-    days = sorted(rows)
     filled = dict(rows)
-    cursor = days[0]
-    last = days[-1]
-    while cursor <= last:
-        if cursor not in filled:
-            before = cursor - dt.timedelta(days=1)
-            after = cursor + dt.timedelta(days=1)
-            if before in filled and after in filled:
-                previous, following = filled[before], filled[after]
-                if None not in (previous["tmax"], following["tmax"]):
-                    filled[cursor] = {
-                        "tmax": round((previous["tmax"] + following["tmax"]) / 2, 2),
-                        "tmin": round(((previous["tmin"] or previous["tmax"]) +
-                                       (following["tmin"] or following["tmax"])) / 2, 2),
-                        "precip": None,
-                    }
+    cursor = min(rows) + dt.timedelta(days=1)
+    last = max(rows)
+    while cursor < last:
+        previous = cursor - dt.timedelta(days=1)
+        following = cursor + dt.timedelta(days=1)
+        if cursor not in filled and previous in rows and following in rows:
+            before = rows[previous]
+            if before["tmax"] is not None:
+                filled[cursor] = {
+                    "tmax": before["tmax"],
+                    "tmin": before["tmin"] if before["tmin"] is not None else before["tmax"],
+                    "precip": None,
+                }
         cursor += dt.timedelta(days=1)
     return filled
 
