@@ -19,6 +19,7 @@ PREDICTIONS_PATH = DATA_DIR / "predictions.jsonl"
 HISTORY_START = dt.date(2005, 1, 1)
 NWP_START = dt.date(2024, 6, 1)  # first day the previous-runs archive covers
 MODEL_VERSION = "ridge-logistic-v4"
+FALLBACK_VERSION = "ridge-logistic-v3"  # 22 features, full history, no forecast block
 
 
 def _load_predictions() -> dict[str, dict]:
@@ -47,7 +48,7 @@ def _save_predictions(entries: dict[str, dict]) -> None:
 
 
 def _record_prediction(entries: dict, target: dt.date, prediction: dict,
-                       issued: dt.date) -> bool:
+                       issued: dt.date, model: str = MODEL_VERSION) -> bool:
     """Log a forecast once, before its outcome exists. First write wins.
 
     A rerun on the same day must not rewrite what was already published, and a
@@ -66,7 +67,7 @@ def _record_prediction(entries: dict, target: dt.date, prediction: dict,
         "tmin": prediction["tmin"],
         "pop": prediction["pop"],
         "precip_in": prediction["precip_in"],
-        "model": MODEL_VERSION,
+        "model": model,
     }
     return True
 
@@ -219,6 +220,9 @@ def build(args: argparse.Namespace) -> dict:
     if not observations:
         raise SystemExit("no observations available")
 
+    # Without a forecast cache the run is the pre-v4 model: 22 features on the
+    # full station history. Say so, rather than stamping it v4.
+    version = MODEL_VERSION if day_ahead else FALLBACK_VERSION
     latest = max(observations)
     target = latest + dt.timedelta(days=1)
 
@@ -235,7 +239,7 @@ def build(args: argparse.Namespace) -> dict:
     note = narrative.write(context, allow_api=not args.no_narrative)
 
     entries = _load_predictions()
-    _record_prediction(entries, target, prediction, weather.local_today())
+    _record_prediction(entries, target, prediction, weather.local_today(), version)
     _save_predictions(entries)
 
     resolved = _resolve(entries, observations)
@@ -245,7 +249,7 @@ def build(args: argparse.Namespace) -> dict:
         "target_date": target.isoformat(),
         "latest_observation": latest.isoformat(),
         "generated_label": now.strftime("%B ") + str(now.day) + now.strftime(", %Y at %H:%M UTC"),
-        "model_version": MODEL_VERSION,
+        "model_version": version,
         "prediction": {
             **{key: prediction[key] for key in
                ("tmax", "tmin", "pop", "precip_in", "normal_tmax", "normal_tmin")},

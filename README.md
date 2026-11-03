@@ -6,6 +6,11 @@ asks a free z.ai model to write the paragraph, and publishes the result to GitHu
 Pages. The model is scored in public against two baselines, and every prediction
 is logged before it resolves.
 
+New here? [**How it works**](docs/how-it-works.md) walks through the whole loop
+with diagrams — sources, features, models and scoring. The measured results are
+in the [experiments log](docs/experiments.md), and
+[the baseline record](docs/baseline_metrics.md) shows what it improved on.
+
 ## Does the data exist?
 
 Yes, and it is free and keyless.
