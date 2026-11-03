@@ -6,7 +6,7 @@ import datetime as dt
 
 import numpy as np
 
-from .features import FEATURES, vector
+from .features import FEATURES, NWP_FEATURES, vector
 from .models import Logistic, Ridge
 from .weather import normal_for
 
@@ -19,13 +19,18 @@ BACKTEST_DAYS = 365
 
 
 def build_dataset(observations: dict, normals: dict,
-                  upstream: dict | None = None) -> list[dict]:
+                  upstream: dict | None = None,
+                  nwp: dict | None = None) -> list[dict]:
     rows: list[dict] = []
     for target in sorted(observations):
         label = observations[target]
         if label.get("tmax") is None or label.get("tmin") is None:
             continue
-        features = vector(observations, target, normals, upstream)
+        if nwp is not None and target not in nwp:
+            # Never train on an imputed forecast: a row either has the real
+            # day-ahead value the model will see in production, or it is out.
+            continue
+        features = vector(observations, target, normals, upstream, nwp)
         if features is None:
             continue
         rows.append({
@@ -147,12 +152,12 @@ def _persistence(rows: list[dict], key: str, fallback: np.ndarray) -> np.ndarray
 
 
 def predict_live(rows: list[dict], observations: dict, target: dt.date, normals: dict,
-                 upstream: dict | None = None) -> dict:
+                 upstream: dict | None = None, nwp: dict | None = None) -> dict:
     data = _arrays(rows)
     indices = np.arange(max(0, len(rows) - MAX_TRAIN_ROWS), len(rows))
     models = _fit_models(data["x"][indices], data, indices)
 
-    features = vector(observations, target, normals, upstream)
+    features = vector(observations, target, normals, upstream, nwp)
     if features is None:
         raise RuntimeError("not enough recent observations to build a feature vector")
 
@@ -171,6 +176,8 @@ def predict_live(rows: list[dict], observations: dict, target: dt.date, normals:
         if target - dt.timedelta(days=lag) in observations
     ]
 
+    names = FEATURES + NWP_FEATURES if nwp is not None else FEATURES
+
     return {
         "target": target,
         "tmax": round(tmax, 1),
@@ -182,5 +189,5 @@ def predict_live(rows: list[dict], observations: dict, target: dt.date, normals:
         "yesterday": observations.get(yesterday),
         "week_mean_high": round(float(np.mean(past_week)), 1) if past_week else None,
         "recent_rain_in": round(float(sum(past_two_weeks)), 2) if past_two_weeks else None,
-        "features": dict(zip(FEATURES, [round(value, 2) for value in features])),
+        "features": dict(zip(names, [round(value, 2) for value in features])),
     }

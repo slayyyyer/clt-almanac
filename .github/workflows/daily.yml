@@ -40,7 +40,7 @@ jobs:
         run: |
           git config user.name "almanac-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/predictions.jsonl data/normals.json data/upstream.json
+          git add data/predictions.jsonl data/normals.json data/upstream.json data/nwp.json
           if git diff --cached --quiet; then
             echo "Prediction log already current."
           else

@@ -7,16 +7,18 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from . import learn, narrative, site, upstream, weather
+from . import learn, narrative, nwp, site, upstream, weather
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 PUBLIC_DIR = ROOT / "public"
 NORMALS_PATH = DATA_DIR / "normals.json"
 UPSTREAM_PATH = DATA_DIR / "upstream.json"
+NWP_PATH = DATA_DIR / "nwp.json"
 PREDICTIONS_PATH = DATA_DIR / "predictions.jsonl"
 HISTORY_START = dt.date(2005, 1, 1)
-MODEL_VERSION = "ridge-logistic-v3"
+NWP_START = dt.date(2024, 6, 1)  # first day the previous-runs archive covers
+MODEL_VERSION = "ridge-logistic-v4"
 
 
 def _load_predictions() -> dict[str, dict]:
@@ -208,6 +210,11 @@ def _week_rows(observations: dict, prediction: dict, target: dt.date) -> list[di
 def build(args: argparse.Namespace) -> dict:
     normals = weather.load_normals(NORMALS_PATH, refresh=args.refresh_normals)
     air = upstream.ensure(UPSTREAM_PATH, HISTORY_START, weather.local_today())
+    try:
+        day_ahead = nwp.ensure(NWP_PATH, NWP_START, weather.local_today())
+    except Exception as error:  # noqa: BLE001 - the lagged model still works
+        day_ahead = {}
+        print(f"day-ahead forecast unavailable: {type(error).__name__}: {error}"[:160])
     observations, forecast, sources = weather.fetch_observations(HISTORY_START)
     if not observations:
         raise SystemExit("no observations available")
@@ -215,12 +222,13 @@ def build(args: argparse.Namespace) -> dict:
     latest = max(observations)
     target = latest + dt.timedelta(days=1)
 
-    rows = learn.build_dataset(observations, normals, air)
+    rows = learn.build_dataset(observations, normals, air, day_ahead or None)
     if len(rows) < 400:
         raise SystemExit(f"not enough history to train on ({len(rows)} rows)")
 
     skill = learn.backtest(rows, horizon=args.days)
-    prediction = learn.predict_live(rows, observations, target, normals, air)
+    prediction = learn.predict_live(rows, observations, target, normals, air,
+                                    day_ahead or None)
     official = forecast.get(target)
 
     context = _narrative_context(prediction, official, latest)

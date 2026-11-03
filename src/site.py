@@ -367,7 +367,8 @@ def render(state: dict) -> str:
     and keyless.</p>
     <p><strong>The pattern model.</strong> Daily features — yesterday's high, low and rain, lags out
     to two weeks, how far the last few days sat from normal, the wet-ground signal, the position
-    of the year, and the overnight air mass upwind — fed to ridge regression for temperatures and
+    of the year, the overnight air mass upwind and the day-ahead forecast high and low — fed to
+    ridge regression for temperatures and
     logistic regression for rain. It retrains every morning on everything before today and
     predicts today.</p>
     <p><strong>The writer.</strong> A free z.ai GLM model turns the numbers into the note above. It is
@@ -384,7 +385,7 @@ def render(state: dict) -> str:
     <a href="https://www.weather.gov/gsp/">National Weather Service</a>.</p>
     <p>Observations: <a href="https://www.ncei.noaa.gov/products/land-based-station/global-historical-climatology-network-daily">NOAA GHCN-Daily</a>
     (public domain) · recent days and forecast: <a href="https://open-meteo.com/">Open-Meteo</a>
-    (CC BY 4.0, ERA5 / ECMWF). Model {_esc(state['model_version'])} · updated daily by GitHub Actions.</p>
+    (CC BY 4.0, ERA5 and ECMWF IFS day-ahead runs). Model {_esc(state['model_version'])} · updated daily by GitHub Actions.</p>
   </footer>
 </div>
 </body>

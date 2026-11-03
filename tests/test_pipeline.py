@@ -13,7 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, mock
 
-from src import features, learn, main, upstream, weather
+from src import features, learn, main, nwp, upstream, weather
 
 
 def _normals() -> dict:
@@ -179,3 +179,92 @@ class GapFillTest(TestCase):
 
         rows[later]["tmax"] = 20.0
         self.assertEqual(weather._interpolate_gaps(rows)[hole]["tmax"], 40.0)
+
+
+class NwpParseTest(TestCase):
+    def test_a_full_day_becomes_its_extremes(self):
+        hours = [f"2026-01-05T{hour:02d}:00" for hour in range(24)]
+        payload = {"hourly": {
+            "time": hours,
+            "temperature_2m_previous_day1": [50.0 + hour for hour in range(24)],
+            "temperature_2m_previous_day2": [40.0 + hour for hour in range(24)],
+        }}
+
+        day = nwp._parse(json.dumps(payload))[dt.date(2026, 1, 5)]
+
+        self.assertEqual(day["tmax"], 73.0)
+        self.assertEqual(day["tmin"], 50.0)
+        self.assertEqual(day["tmax_day2"], 63.0)
+
+    def test_a_thin_day_is_dropped(self):
+        payload = {"hourly": {
+            "time": ["2026-01-05T00:00", "2026-01-05T01:00"],
+            "temperature_2m_previous_day1": [50.0, 51.0],
+            "temperature_2m_previous_day2": [None, None],
+        }}
+
+        self.assertEqual(nwp._parse(json.dumps(payload)), {})
+
+
+class NwpCacheTest(TestCase):
+    def test_coverage_is_written_from_the_days_that_arrived(self):
+        def fake_fetch(start, end, tries=3, timeout=180):
+            stamps = []
+            cursor = start
+            while cursor <= end:
+                stamps.extend(f"{cursor.isoformat()}T{hour:02d}:00" for hour in range(24))
+                cursor += dt.timedelta(days=1)
+            return json.dumps({"hourly": {
+                "time": stamps,
+                "temperature_2m_previous_day1": [60.0] * len(stamps),
+                "temperature_2m_previous_day2": [55.0] * len(stamps),
+            }})
+
+        with TemporaryDirectory() as folder, mock.patch("src.nwp._fetch", fake_fetch):
+            path = Path(folder) / "nwp.json"
+            days = nwp.ensure(path, dt.date(2026, 1, 1), dt.date(2026, 1, 5))
+            covered = json.loads(path.read_text(encoding="utf-8"))["covered"]
+
+        self.assertEqual(len(days), 5)
+        self.assertEqual(covered, {"from": "2026-01-01", "to": "2026-01-05"})
+
+
+class NwpFeatureTest(TestCase):
+    def test_the_forecast_block_appears_only_when_supplied(self):
+        observations = _observations(dt.date(2026, 1, 1), dt.date(2026, 3, 31))
+        normals = _normals()
+        air = {day: 55.0 for day in observations}
+        target = dt.date(2026, 4, 1)
+        forecast = {
+            target: {"tmax": 88.0, "tmin": 60.0},
+            target - dt.timedelta(days=1): {"tmax": 80.0, "tmin": 55.0},
+        }
+
+        plain = features.vector(observations, target, normals, air)
+        enriched = features.vector(observations, target, normals, air, forecast)
+
+        self.assertEqual(len(plain), len(features.FEATURES))
+        self.assertEqual(len(enriched), len(features.FEATURES) + len(features.NWP_FEATURES))
+        block = dict(zip(features.NWP_FEATURES, enriched[-4:]))
+        self.assertEqual(block["nwp_tmax"], 88.0)
+        self.assertEqual(block["nwp_tmin"], 60.0)
+        self.assertEqual(block["nwp_trend"], 8.0)
+        self.assertEqual(
+            block["nwp_vs_lag1"],
+            88.0 - observations[target - dt.timedelta(days=1)]["tmax"],
+        )
+
+    def test_forecasts_after_the_target_do_not_change_the_vector(self):
+        observations = _observations(dt.date(2026, 1, 1), dt.date(2026, 3, 31))
+        normals = _normals()
+        air = {day: 55.0 for day in observations}
+        target = dt.date(2026, 3, 15)
+        forecast = {day: {"tmax": 60.0 + day.day, "tmin": 40.0 + day.day}
+                    for day in sorted(observations)}
+
+        trimmed = {day: value for day, value in forecast.items() if day <= target}
+
+        self.assertEqual(
+            features.vector(observations, target, normals, air, forecast),
+            features.vector(observations, target, normals, air, trimmed),
+        )

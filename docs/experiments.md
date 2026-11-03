@@ -36,3 +36,33 @@ Runtime: 5.8 s end to end on this machine against 5.0 s at baseline — one extr
 requested per station, plus run-to-run noise.
 
 Tests: `python -m unittest discover -s tests -t .`
+
+## 2026-11-03 — Phase 1: day-ahead forecast features
+
+Source: Open-Meteo Previous Runs API, model `ecmwf_ifs025`, variable
+`temperature_2m_previous_day1` (hourly, aggregated to the local-day max and min).
+The archive begins 2024-06-01, so the dataset is restricted to that era and both
+arms are scored on identical rows and folds.
+
+| config | features | high MAE | low MAE | Brier |
+|---|---|---|---|---|
+| A control, NWP-era rows only | 22 | 4.95 | 3.31 | 0.171 |
+| B with the forecast block | 26 | **2.17** | **1.98** | **0.158** |
+| S negative control, same series shuffled | 26 | 4.92 | 3.32 | 0.173 |
+
+Full-history baseline for context: 4.88 / 3.34 / 0.170.
+
+Raw ECMWF day-1 error across the same 365 days: high MAE **3.00** with a
+**−1.84°F** bias; low MAE **2.17** with +0.36. The ridge is not merely copying
+the forecast — it corrects a systematic cold bias, which is why 2.17 beats the
+raw 3.00.
+
+The shuffled control is the integrity check: permute the forecast series across
+days and the entire gain disappears (4.92 / 3.32 / 0.173). The features are also
+strictly backward-looking — deleting every forecast dated after the target leaves
+the vector unchanged — and `build_dataset` refuses rows without a real forecast,
+so no imputed value ever reaches training.
+
+Dataset: 870 rows (2024-06-15 onward), 365 scored days.
+Runtime: 2.5 s end to end, down from 5.8 s — fewer training rows cost more than
+four extra features.

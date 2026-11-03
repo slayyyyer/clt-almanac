@@ -22,9 +22,15 @@ page compares against. Its archive is the fallback if NCEI is unreachable.
 
 **The air on its way:** the [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/)
 keeps the hourly ASOS records from Atlanta, Greer, Columbia and Asheville. Their
-mean temperature between 00Z and 05Z is the regional air mass Charlotte is about
-to receive — the one input here that is not a measurement of what already
-happened locally.
+mean temperature between 00Z and 05Z is an estimate of the regional air mass
+Charlotte is about to receive — not a forecast, but not local history either.
+
+**What the models expected:** Open-Meteo's
+[previous-runs API](https://open-meteo.com/en/docs/previous-runs-api) keeps each
+forecast at fixed lead times, so `temperature_2m_previous_day1` is the value ECMWF
+predicted 24 hours before it verified — available by construction at the 07:17Z
+press time. The archive starts in June 2024, which is why the model now trains on
+that era instead of twenty years of station history.
 
 Charlotte is at 35.2271°N, 80.8431°W. The station sits at the airport, about eight
 miles west of uptown.
@@ -36,8 +42,9 @@ Three separate pieces, deliberately:
 1. **The pattern model** (`src/learn.py`, `src/models.py`) produces every number.
    Daily features — yesterday's high, low and rain, lags out to two weeks, rolling
    means, anomalies against normal, the wet-ground signal, the position of the
-   year and the overnight air mass upwind — go into ridge regression for the high
-   and low, and L2 logistic regression for the chance of rain. It retrains on everything before today and
+   year, the overnight air mass upwind and the day-ahead forecast — go into ridge
+   regression for the high and low, and L2 logistic regression for the chance of
+   rain. It retrains on everything before today and
    predicts today.
 2. **The narrator** (`src/narrative.py`) is `glm-4.7-flash` on z.ai's free tier.
    It receives the finished numbers and writes 70–110 words of prose. It is
@@ -84,7 +91,8 @@ python -m src.main                       # needs ZAI_API_KEY in the environment
 `--refresh-normals` refetches the 1991–2020 climate normals. The first run also
 backfills `data/upstream.json` from the Mesonet (about 20 MB of hourly records);
 later runs only ask for the days past the cached edge, and the workflow commits
-the file so the archive travels with the repository.
+the file so the archive travels with the repository. `data/nwp.json` caches the
+day-ahead forecasts the same way, fetched in 180-day chunks the first time.
 
 Output lands in `public/index.html` and `public/forecast.json`. Open the HTML
 file directly; it has no dependencies.
@@ -118,7 +126,7 @@ per day, roughly 600 tokens in and 300 out.
 
 ## Limits worth knowing
 
-- The model is linear on twenty-two features. It will not see a stalled front, a
+- The model is linear on twenty-six features. It will not see a stalled front, a
   tropical system, or cold-air damming better than persistence does — the skill
   table is there to say so honestly.
 - The upwind airports are a proxy for a single air mass, not a trajectory. On a
@@ -129,5 +137,10 @@ per day, roughly 600 tokens in and 300 out.
 - GHCN runs two to four days behind, so the newest days of "observed" weather
   come from Open-Meteo's analysis rather than the airport station. The two agree
   closely but are not the same measurement.
+- The day-ahead archive starts in June 2024, so the model trains on about two and
+  a half years of rows instead of twenty. That is the price of its strongest
+  feature.
+- ECMWF runs about 1.8°F cold on Charlotte's daily high. The ridge learns that
+  offset; a change of model version would need it relearned.
 - This is a notebook, not an official forecast. The National Weather Service is
   the authority for decisions.

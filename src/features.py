@@ -37,6 +37,15 @@ FEATURES = (
     "upstream_change",
 )
 
+# Appended only when a day-ahead forecast series is supplied, so the model can be
+# built with or without the NWP block from the same function.
+NWP_FEATURES = (
+    "nwp_tmax",
+    "nwp_tmin",
+    "nwp_vs_lag1",
+    "nwp_trend",
+)
+
 TREND_DAYS = 3
 WINDOW_DAYS = 14
 
@@ -51,8 +60,32 @@ def _season(target: dt.date) -> tuple[float, float, float, float]:
     return math.sin(angle), math.cos(angle), math.sin(2 * angle), math.cos(2 * angle)
 
 
+def _nwp_features(target: dt.date, nwp: dict | None, target_normal: float,
+                  target_normal_low: float, lag1_high: float) -> list[float]:
+    """The forecast high and how it departs from persistence.
+
+    Empty when no forecast series is supplied. When the target has no forecast,
+    the block falls back to the normal and two zeros, which is neutral for a
+    model trained on real values rather than an invitation to extrapolate.
+    """
+    if nwp is None:
+        return []
+    forecast = nwp.get(target) or {}
+    high = forecast.get("tmax")
+    if high is None:
+        return [target_normal, target_normal_low, 0.0, 0.0]
+    low = forecast.get("tmin")
+    previous = (nwp.get(target - dt.timedelta(days=1)) or {}).get("tmax")
+    return [
+        high,
+        target_normal_low if low is None else low,
+        high - lag1_high,
+        0.0 if previous is None else high - previous,
+    ]
+
+
 def vector(observations: dict, target: dt.date, normals: dict,
-           upstream: dict | None = None) -> list[float] | None:
+           upstream: dict | None = None, nwp: dict | None = None) -> list[float] | None:
     """Feature vector for `target`, or None when history is too thin.
 
     `upstream` is the regional overnight temperature keyed by date: the only
@@ -81,6 +114,7 @@ def vector(observations: dict, target: dt.date, normals: dict,
     target_normal = normal_for(normals, "tmax", target)
     if target_normal is None:
         return None
+    target_normal_low = normal_for(normals, "tmin", target) or target_normal
 
     tmax = [past[lag]["tmax"] for lag in range(1, WINDOW_DAYS + 1)]
     tmin = [past[lag].get("tmin") for lag in range(1, TREND_DAYS + 1)]
@@ -120,4 +154,4 @@ def vector(observations: dict, target: dt.date, normals: dict,
         air_now,
         air_now - past[1]["tmax"],
         air_now - air_previous,
-    ]
+    ] + _nwp_features(target, nwp, target_normal, target_normal_low, past[1]["tmax"])

@@ -118,3 +118,10 @@ wiring bug.
 
 The backtest is unmoved at 4.88 / 3.34 / 0.170, which is the point: those rows were
 already built honestly. What changed is that the live forecast now agrees with them.
+
+## Superseded by Phase 1 — 2026-11-03
+
+`docs/experiments.md` records the day-ahead forecast features that took this same
+365-day window from 4.88 / 3.34 / 0.170 to **2.17 / 1.98 / 0.158**. The numbers
+above remain the reference for the lagged-only model, which is still what runs if
+the forecast archive is unreachable.
