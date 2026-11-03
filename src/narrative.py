@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 
 ENDPOINT = "https://api.z.ai/api/paas/v4/chat/completions"
 DEFAULT_MODEL = "glm-4.7-flash"
+MAX_TOKENS = 900
 
 SYSTEM = (
     "You write the daily weather note for a small almanac in Charlotte, North Carolina. "
@@ -139,6 +141,35 @@ def _fallback(context: dict, reason: str = "") -> dict:
     }
 
 
+def _payload(model: str, context: dict, disable_thinking: bool) -> dict:
+    """GLM 4.x are hybrid reasoning models. Left on, thinking eats the whole token
+    budget and the visible answer comes back empty or clipped; the note needs prose,
+    not deliberation."""
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": _prompt(context)},
+        ],
+        "temperature": 0.65,
+        "top_p": 0.9,
+        "max_tokens": MAX_TOKENS,
+    }
+    if disable_thinking:
+        payload["thinking"] = {"type": "disabled"}
+    return payload
+
+
+def _complete(model: str, context: dict, api_key: str) -> dict:
+    """Older GLM builds reject the thinking switch, so fall back to a plain payload."""
+    try:
+        return _post(_payload(model, context, disable_thinking=True), api_key)
+    except urllib.error.HTTPError as error:
+        if error.code not in (400, 422):
+            raise
+        return _post(_payload(model, context, disable_thinking=False), api_key)
+
+
 def write(context: dict, allow_api: bool = True) -> dict:
     api_key = os.environ.get("ZAI_API_KEY", "").strip()
     model = os.environ.get("ZAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
@@ -149,23 +180,17 @@ def write(context: dict, allow_api: bool = True) -> dict:
     if not api_key:
         return _fallback(context, reason="ZAI_API_KEY not set")
 
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": _prompt(context)},
-        ],
-        "temperature": 0.65,
-        "top_p": 0.9,
-        "max_tokens": 420,
-    }
-
     try:
-        response = _post(payload, api_key)
-        text = response["choices"][0]["message"]["content"]
+        response = _complete(model, context, api_key)
+        choice = response["choices"][0]
+        text = (choice.get("message", {}).get("content") or "").strip()
         headline, body = _split(text, fallback_headline)
-        if len(body.split()) < 25:
-            raise ValueError("completion was too short")
+        words = len(body.split())
+        if words < 25:
+            raise ValueError(
+                f"completion too short: {words} words, finish_reason="
+                f"{choice.get('finish_reason')}, {len(text)} chars"
+            )
         return {"headline": headline, "body": body, "source": "z.ai", "model": model, "note": ""}
     except Exception as error:  # noqa: BLE001 - the page must still publish
         return _fallback(context, reason=f"{type(error).__name__}: {error}"[:160])
