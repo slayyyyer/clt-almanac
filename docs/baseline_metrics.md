@@ -125,3 +125,6 @@ already built honestly. What changed is that the live forecast now agrees with t
 365-day window from 4.88 / 3.34 / 0.170 to **2.17 / 1.98 / 0.158**. The numbers
 above remain the reference for the lagged-only model, which is still what runs if
 the forecast archive is unreachable.
+
+Defect 6 was sized on 2026-11-03: 2 of 884 current training rows carry an
+Open-Meteo label rather than a station one (see `docs/experiments.md`).

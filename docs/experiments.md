@@ -66,3 +66,32 @@ so no imputed value ever reaches training.
 Dataset: 870 rows (2024-06-15 onward), 365 scored days.
 Runtime: 2.5 s end to end, down from 5.8 s — fewer training rows cost more than
 four extra features.
+
+## 2026-11-03 — Phase 3: regularization is not the bottleneck
+
+Swept the ridge, logistic and amount alphas over {0.3, 1, 3, 10, 30} on the
+26-feature dataset, with a split-half check (first 182 days vs last 182).
+
+| alpha | high | low | Brier | head high/low | tail high/low |
+|---|---|---|---|---|---|
+| 0.3 | 2.18 | 1.97 | 0.161 | 2.42 / 2.32 | 1.94 / 1.63 |
+| 1.0 | 2.17 | 1.99 | 0.158 | 2.40 / 2.34 | 1.94 / 1.64 |
+| 3.0 | 2.16 | 2.02 | 0.155 | 2.39 / 2.41 | 1.93 / 1.64 |
+| 10 | 2.15 | 2.15 | 0.152 | 2.38 / 2.63 | 1.91 / 1.68 |
+| 30 | 2.13 | 2.38 | 0.152 | 2.41 / 2.98 | 1.86 / 1.79 |
+
+Nothing here is worth keeping. More shrinkage buys 0.04°F on the high and 0.006
+Brier while costing 0.39°F on the low, and the two halves disagree about which
+direction is better. **Alpha stays at 1.0.** The model is not variance-limited;
+the next gain has to come from information, not shrinkage.
+
+## 2026-11-03 — defect 6, sized rather than fixed
+
+The train/serve source mismatch is far smaller than the baseline audit assumed.
+In the current build exactly **2 of 884 rows** (2026-10-31 and 2026-11-01) carry
+a label from the Open-Meteo fill instead of the station, because GHCN has caught
+up with everything older. On the 12 days both sources cover, GHCN reads +1.38°F
+warmer on the high (max 2.12°F).
+
+Two labels, one direction. It belongs in the limits list, not in a refactor of
+the merge logic. Left open and now sized.
