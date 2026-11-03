@@ -66,6 +66,8 @@ Rain is scored with the Brier score against the climatological base rate. On top
 of that, `data/predictions.jsonl` records each forecast the day it is issued, so
 once a few weeks have accumulated the page also shows a live scoreboard of calls
 made before the outcome existed.
+Each target date is logged once, when it is issued; a rerun later the same day cannot
+rewrite it, and a day the record has already reached is not logged at all.
 
 ## Run it locally
 
@@ -86,6 +88,9 @@ the file so the archive travels with the repository.
 
 Output lands in `public/index.html` and `public/forecast.json`. Open the HTML
 file directly; it has no dependencies.
+
+Run the regression tests with `python -m unittest discover -s tests -t .` —
+standard library only, no network.
 
 ## Put it on GitHub Pages
 
