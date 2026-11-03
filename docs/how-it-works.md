@@ -44,6 +44,23 @@ One process, `python -m src.main`, in this order:
 8. **Narrate** — z.ai writes the note from the finished numbers.
 9. **Publish** — HTML, JSON, and one line in the prediction log.
 
+### What the workflow writes back
+
+Actions runners are ephemeral, so the repository is the only memory the project
+has between mornings. Each run writes its caches and its ledger back, and
+tomorrow's checkout starts from them.
+
+```mermaid
+flowchart LR
+    run["python -m src.main"] --> files["data/predictions.jsonl<br/>data/normals.json<br/>data/upstream.json<br/>data/nwp.json"]
+    files --> commit["git add, commit if changed"]
+    commit --> push["git push"]
+    push --> next["Tomorrow's checkout"]
+    next --> run
+    run --> artifact["public/ as the Pages artifact"]
+    artifact --> pages["deploy-pages"]
+```
+
 ## 2. Inputs, and when they exist
 
 | source | what it supplies | latency at press time |
@@ -101,6 +118,25 @@ with `α = 1.0`. Fitted separately for the high and the low.
 penalised log-likelihood, intercept unpenalised) gives the chance of ≥ 0.01 in.
 A second ridge, fitted only on wet days, predicts `log1p(amount)`. The expected
 rainfall on the page is `P(wet) × expm1(amount)`, clipped.
+
+One standardised vector feeds four heads, with a threshold and a log transform
+in front of the rain amount:
+
+```mermaid
+flowchart LR
+    X["X: 26 features"] --> S["Standardise<br/>mean 0, variance 1"]
+    S --> R1["Ridge, alpha 1.0"]
+    S --> R2["Ridge, alpha 1.0"]
+    S --> L["Logistic, L2<br/>alpha 1.0"]
+    S --> W["Wet training rows only<br/>precip above 0.01 in"]
+    W --> R3["Ridge on log1p amount"]
+    R1 --> HI["High, F"]
+    R2 --> LO["Low, F"]
+    L --> POP["P wet"]
+    R3 --> AMT["Amount when wet, in"]
+    POP --> EXP["Expected rain<br/>P times amount, clipped"]
+    AMT --> EXP
+```
 
 Everything is deliberately small: fitting all four models takes milliseconds,
 which is what makes it practical to retrain for every single backtest day.
@@ -186,14 +222,49 @@ half, it runs 2.40 in the cool half and 1.94 in the warm half — read it as "lo
 | `data/nwp.json` | day-1/day-2 forecasts, 2024-06-01→ | refetched in 180-day chunks |
 | `data/predictions.jsonl` | issued forecasts, last 730 | starts empty |
 
-Both caches derive their coverage from the days that actually arrived, so a span
-the service had no data for is asked for again rather than written off.
+The edge of each cache is the newest day that actually arrived, so a span the
+service had no data for does not advance it: the next run asks again rather than
+writing the gap off.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Missing
+    Missing --> Backfill: file absent or unreadable
+    Backfill --> Covered: 180-day chunks written
+    Covered --> Covered: end is past the newest day
+    Covered --> Covered: start is before the oldest day
+    Covered --> Covered: nothing arrived, edge holds
+```
+
+An interior day that never arrived is not re-requested; the row is simply absent,
+and `build_dataset` drops it rather than imputing a forecast.
 
 If the day-ahead cache cannot be fetched, the run falls back to the 22-feature
 lagged model on the full station history — the pre-v4 behaviour — and labels
 itself `ridge-logistic-v3` on the page and in the log. If GHCN is unreachable,
 Open-Meteo's archive takes over as history. If z.ai fails, a template writes the
 note and the page says so.
+
+```mermaid
+flowchart TD
+    start["07:17Z run"] --> ghcn{"GHCN reachable?"}
+    ghcn -- yes --> hist["Station history"]
+    ghcn -- no --> era{"Open-Meteo archive?"}
+    era -- yes --> hist2["ERA5 history, page flagged degraded"]
+    era -- no --> hist3["Recent days only"]
+    hist3 --> abort["Exit: not enough history"]
+    start --> nwpq{"Day-ahead cache available?"}
+    nwpq -- yes --> v4["26 features, v4"]
+    nwpq -- no --> v3["22 features, full history, v3"]
+    hist --> v4
+    hist2 --> v4
+    v4 --> llm{"z.ai call succeeds?"}
+    v3 --> llm
+    llm -- yes --> prose["GLM note"]
+    llm -- no --> tpl["Template note, page says so"]
+    prose --> pub["Publish"]
+    tpl --> pub
+```
 
 ## 9. Files
 
