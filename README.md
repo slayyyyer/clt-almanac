@@ -119,6 +119,14 @@ The schedule is `17 7 * * *` UTC, about 3:17am in Charlotte in summer and 2:17am
 in winter — before the day being predicted has happened. GitHub may delay
 scheduled runs by a few minutes under load.
 
+GitHub also disables a scheduled workflow once the repository has gone 60 days
+without a commit, so a project whose only activity is the daily run can quietly
+stop. The **keepalive** job at the bottom of the workflow re-enables the schedule
+after every run with one `curl` call to the Actions API — no third-party action
+and no empty commits, nothing to install and nothing to allow — and it runs even
+when the build fails. It needs no extra secrets or settings, only the
+`actions: write` permission it declares itself.
+
 Each run commits the updated `data/predictions.jsonl` back to the repository so
 the prediction log survives between runs; that is why the workflow asks for
 `contents: write`.
