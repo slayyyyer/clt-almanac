@@ -1,9 +1,9 @@
 {
  "source": "Open-Meteo previous runs \u00b7 ecmwf_ifs025 \u00b7 day-1 lead",
- "generated_at": "2026-11-06T15:04:48+00:00",
+ "generated_at": "2026-11-07T14:03:18+00:00",
  "covered": {
   "from": "2024-06-01",
-  "to": "2026-11-06"
+  "to": "2026-11-07"
  },
  "days": {
   "2024-06-01": {
@@ -4450,6 +4450,11 @@
    "tmax": 72.1,
    "tmin": 58.6,
    "tmax_day2": 69.7
+  },
+  "2026-11-07": {
+   "tmax": 62.8,
+   "tmin": 49.8,
+   "tmax_day2": 62.0
   }
  }
 }
