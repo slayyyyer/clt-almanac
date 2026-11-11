@@ -7,3 +7,4 @@
 {"issued": "2026-11-08", "logged_at": "2026-11-08T14:18:36+00:00", "model": "ridge-logistic-v4", "pop": 0.039, "precip_in": 0.0, "target": "2026-11-08", "tmax": 68.1, "tmin": 42.6}
 {"issued": "2026-11-09", "logged_at": "2026-11-09T17:30:24+00:00", "model": "ridge-logistic-v4", "pop": 0.024, "precip_in": 0.0, "target": "2026-11-09", "tmax": 73.3, "tmin": 44.3}
 {"issued": "2026-11-10", "logged_at": "2026-11-10T15:36:43+00:00", "model": "ridge-logistic-v4", "pop": 0.01, "precip_in": 0.0, "target": "2026-11-10", "tmax": 74.3, "tmin": 42.3}
+{"issued": "2026-11-11", "logged_at": "2026-11-11T15:14:17+00:00", "model": "ridge-logistic-v4", "pop": 0.016, "precip_in": 0.0, "target": "2026-11-11", "tmax": 74.4, "tmin": 43.0}
