@@ -121,16 +121,27 @@ def _short_date(value: str) -> str:
     return f"{day.strftime('%b')} {day.day}"
 
 
+MODEL_SERIES = (
+    ("predicted_tmax", "#1f5c4a", "model high"),
+    ("predicted_tmin", "#a8492f", "model low"),
+)
+
+
 def _chart(days: list[dict]) -> str:
     if len(days) < 5:
         return '<p class="caption">The chart fills in once a few days of observations are available.</p>'
 
     width, height = 740, 210
     left, right, top, bottom = 40, 12, 14, 26
-    highs = [day["tmax"] for day in days]
-    lows = [day["tmin"] for day in days]
-    low_edge = min(lows) - 3
-    high_edge = max(highs) + 3
+    plotted = [
+        value
+        for day in days
+        for value in (day["tmax"], day["tmin"], day.get("predicted_tmax"),
+                      day.get("predicted_tmin"))
+        if value is not None
+    ]
+    low_edge = min(plotted) - 3
+    high_edge = max(plotted) + 3
     span = max(high_edge - low_edge, 12)
 
     def x(index: int) -> float:
@@ -156,19 +167,31 @@ def _chart(days: list[dict]) -> str:
             f'fill="#8b8371" font-family="ui-sans-serif, system-ui, sans-serif">{round(value)}</text>'
         )
 
-    predicted = []
-    for index, day in enumerate(days):
-        if day.get("predicted_tmax") is not None:
-            predicted.append(f"{x(index):.1f},{y(day['predicted_tmax']):.1f}")
-    prediction_layer = ""
-    if len(predicted) >= 2:
-        prediction_layer = (
-            f'<polyline points="{" ".join(predicted)}" fill="none" stroke="#1f5c4a" '
-            'stroke-width="1.6" stroke-dasharray="4 3" />'
-        ) + "".join(
-            f'<circle cx="{point.split(",")[0]}" cy="{point.split(",")[1]}" r="2.4" fill="#1f5c4a" />'
-            for point in predicted
+    def model_series(key: str, stroke: str) -> str:
+        points = [
+            (x(index), y(day[key]))
+            for index, day in enumerate(days)
+            if day.get(key) is not None
+        ]
+        if len(points) < 2:
+            return ""
+        path = " ".join(f"{px:.1f},{py:.1f}" for px, py in points)
+        dots = "".join(
+            f'<circle cx="{px:.1f}" cy="{py:.1f}" r="2.4" fill="{stroke}" />'
+            for px, py in points
         )
+        return (
+            f'<polyline points="{path}" fill="none" stroke="{stroke}" '
+            'stroke-width="1.6" stroke-dasharray="4 3" />'
+        ) + dots
+
+    prediction_layer = ""
+    legend_bits = ""
+    for key, stroke, label in MODEL_SERIES:
+        layer = model_series(key, stroke)
+        if layer:
+            prediction_layer += layer
+            legend_bits += f'<span style="color:{stroke}">-- {label}</span>'
 
     first = _short_date(days[0]["date"])
     last = _short_date(days[-1]["date"])
@@ -176,15 +199,15 @@ def _chart(days: list[dict]) -> str:
         '<div style="display:flex;gap:16px;font-family:ui-sans-serif,system-ui,sans-serif;'
         'font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#5b5548;margin:2px 0 8px">'
         '<span style="color:#3c6e9c">— observed range</span>'
+        + legend_bits
+        + "</div>"
     )
-    if len(predicted) >= 2:
-        legend += '<span style="color:#1f5c4a">-- model high</span>'
-    legend += "</div>"
 
     return (
         f'<div class="chart">{legend}'
         f'<svg viewBox="0 0 {width} {height}" role="img" '
-        f'aria-label="Daily high and low temperatures from {_esc(first)} to {_esc(last)}">'
+        f'aria-label="Daily high and low temperatures and the model\'s predicted high and low '
+        f'from {_esc(first)} to {_esc(last)}">'
         + "".join(grid)
         + f'<polygon points="{band}" fill="rgba(60,110,156,.14)" stroke="rgba(60,110,156,.5)" stroke-width="1" />'
         + prediction_layer
