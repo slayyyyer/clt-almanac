@@ -180,6 +180,7 @@ def _chart_days(observations: dict, resolved: list[dict], count: int = 30) -> li
             "tmax": row["tmax"],
             "tmin": row["tmin"],
             "predicted_tmax": entry["tmax"] if entry else None,
+            "predicted_tmin": entry["tmin"] if entry else None,
         })
     return days
 
